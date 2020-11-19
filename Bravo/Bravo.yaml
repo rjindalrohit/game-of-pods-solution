@@ -1,0 +1,180 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: drupal-pv
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /drupal-data
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: drupal-mysql-pv
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /drupal-mysql-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: drupal-mysql-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: drupal-mysql-pv
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: drupal-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: drupal-pv
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: drupal-mysql
+  name: drupal-mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drupal-mysql
+  template:
+    metadata:
+      labels:
+        app: drupal-mysql
+    spec:
+      containers:
+      - image: mysql:5.7
+        name: mysql
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: drupal-mysql-secret
+              key: MYSQL_ROOT_PASSWORD
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: drupal-mysql-secret
+              key: MYSQL_DATABASE
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: drupal-mysql-secret
+              key: MYSQL_USER
+        ports:
+         - containerPort: 3306
+        volumeMounts:
+        - mountPath: "/var/lib/mysql"
+          name: mysql
+          subPath: dbdata
+      volumes:
+       - name: mysql
+         persistentVolumeClaim:
+           claimName: drupal-mysql-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: drupal-mysql-service
+  name: drupal-mysql-service
+spec:
+  ports:
+  - name: 3306-3306
+    port: 3306
+    protocol: TCP
+    targetPort: 3306
+  selector:
+    app: drupal-mysql
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: drupal
+  name: drupal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drupal
+  template:
+    metadata:
+      labels:
+        app: drupal
+    spec:
+      containers:
+      - image: drupal:8.6
+        name: drupal
+        ports:
+          - containerPort: 80
+            name: drupal
+        volumeMounts:
+        - mountPath: "/var/www/html/modules"
+          name: drupal-pvc
+          subPath: modules
+        - mountPath: "/var/www/html/profiles"
+          name: drupal-pvc
+          subPath: profiles
+        - mountPath: "/var/www/html/sites"
+          name: drupal-pvc
+          subPath: sites
+        - mountPath: "/var/www/html/themes"
+          name: drupal-pvc
+          subPath: themes
+      initContainers:
+      - image: drupal:8.6
+        name: init-sites-volume
+        volumeMounts:
+        - mountPath: "/data"
+          name: drupal-pvc
+        command: [ "/bin/bash", "-c" ]
+        args: [ 'cp -r /var/www/html/sites/ /data/; chown www-data:www-data /data/ -R' ]
+      volumes:
+      - name: drupal-pvc
+        persistentVolumeClaim:
+          claimName: drupal-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: drupal-service
+  name: drupal-service
+spec:
+  ports:
+  - name: svc
+    port: 80
+    protocol: TCP
+    targetPort: 80
+    nodePort: 30095
+  selector:
+    app: drupal-service
+  type: NodePort
+status:
+  loadBalancer: {}
