@@ -1,0 +1,93 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: development
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jekyll-site
+spec:
+  accessModes:
+    - ReadWriteMany
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: jekyll
+  name: jekyll
+  namespace: development
+spec:
+  initContainers:
+  - name: copy-jekyll-site
+    image: kodekloud/jekyll
+    command: [ "jekyll", "new", "/site" ]
+    volumeMounts:
+    - mountPath: /site
+      name: site
+  containers:
+  - image: kodekloud/jekyll-serve
+    name: jekyll
+    volumeMounts:
+    - mountPath: /site
+      name: site
+    ports:
+    - containerPort: 4000
+  volumes:
+  - name: site
+    persistentVolumeClaim:
+      claimName: jekyll-site
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    run: jekyll
+  name: jekyll
+  namespace: development
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 4000
+    nodePort: 30097
+  selector:
+    run: jekyll
+  type: NodePort
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  name: developer-role
+  namespace: development
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - persistentvolumeclaims
+  - pods
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  creationTimestamp: null
+  name: developer-rolebinding
+  namespace: development
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: developer-role
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: drogo
